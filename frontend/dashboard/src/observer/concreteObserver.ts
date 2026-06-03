@@ -11,12 +11,21 @@ export class concreteObserver implements observer {
 
   update(temperature: number): void {
 
+    console.log("Observer recibió temperatura:", temperature)
+
+    if(temperature < this.targetTemperature) {
+      this.notificationSent = false;
+    }
+
     if (
       temperature >= this.targetTemperature &&
       !this.notificationSent
     ) {
+      console.log("Temperatura objetivo alcanzada")
 
       this.notificationSent = true;
+
+      console.log("Permiso actual:", Notification.permission)
 
       if (
         typeof window !== "undefined" &&
@@ -28,9 +37,15 @@ export class concreteObserver implements observer {
           body: `El agua alcanzó ${temperature}°C`,
         });
 
+        alert(`El agua alcanzó ${temperature}°C. ¡Tu mate está listo!`)
+
       }
 
     }
 
   }
 }
+
+
+
+

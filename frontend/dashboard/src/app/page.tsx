@@ -1,8 +1,10 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { getLiveData, getEvents, getHistory, postPour } from "@/services/mockApi"//le paso el moquito de prueba para el grafico
 import { TelemetryData, MateEvent, HistoryRow } from "@/types/telemetry"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
+import { concreteObserver } from "@/observer/concreteObserver"
+import { subject } from "@/observer/subjetc"
 
 export default function Home() {
   //variables especiales de React, cuando cambian o las cambiamos, la pantalla se actualiza sola
@@ -13,6 +15,7 @@ export default function Home() {
   const [tempHistory, setTempHistory] = useState<{ time: string; temp: number }[]>([]) // puntos del grafico: hora y temperatura. Se va llenando con el tiempo
   const [rango, setrango] = useState("10s")  // esto es lpara los botones de cambio de timepo 10s, 1m, 10m y 1h
 
+  const temperatureSubjectRef = useRef<subject | null>(null)
 
   //función que pide todos los datos al servicio y actualiza los estados
   const fetchAll = async () => {
@@ -22,6 +25,8 @@ export default function Home() {
       getEvents(),
       getHistory(),// trae filas del historial
     ])
+
+    temperatureSubjectRef.current?.notify(live.ultimaTemperatura)
 
     //guarda cada resultado en su estado → React actualiza la pantalla automaticamente
     setLiveData(live)
@@ -37,13 +42,6 @@ export default function Home() {
     })
   }
 
-  // se ejecuta una sola vez cuando la pagina carga
-  useEffect(() => {
-    fetchAll()
-    const interval = setInterval(fetchAll, 3000)
-    return () => clearInterval(interval)
-  }, [])
-
   // se ejecuta cuando el usuario aprieta el botón "Cebar"
   const handlePour = async () => {
     await postPour()
@@ -53,6 +51,25 @@ export default function Home() {
   const statusColor = (status: string) =>
     status === "calentando" ? "text-orango-400" : "text-green-400"
 
+  useEffect(() => {
+    if ("Notification" in window) {
+      Notification.requestPermission().then(permission => {
+      console.log("Permiso de notificación:", permission)
+    })
+}
+
+    temperatureSubjectRef.current = new subject()
+
+    const temperatureObserver = new concreteObserver(78)
+    temperatureSubjectRef.current.subscribe(temperatureObserver)
+
+    fetchAll()
+
+    const interval = setInterval(fetchAll, 3000)
+
+    return () => clearInterval(interval)
+  }, [])
+
   // mientras fetchAll no terminó la primera llamada, liveData es null
   // esto evita que React intente mostrar liveData.temperature cuando todavía no hay datos
   if (!liveData) return <p className="text-white p-8">Cargando...</p>
@@ -61,6 +78,7 @@ export default function Home() {
     <main className="min-h-screen bg-gray-950 text-white p-6">
 
       {/* Header */}
+
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm text-gray-400 bg-gray-800 px-3 py-1 rounded-full">
           termo-1 • en vivo
@@ -84,7 +102,7 @@ export default function Home() {
 
         <div style={{ height: "128px" }} className="bg-gray-800 rounded-xl p-5">
           <p className="text-xs text-gray-400">Objetivo (potenciómetro)</p>
-          <p className="text-3xl font-bold text-purple-400 mt-1">{liveData.ultimaTemperatura}°C</p>
+          <p className="text-3xl font-bold text-purple-400 mt-1">{liveData.temperaturaObjetivo}°C</p>
           <p className="text-xs text-gray-500 mt-1">setpoint actual</p>
         </div>
 
@@ -154,7 +172,7 @@ export default function Home() {
                 formatter={(v) => [`${v}°C`, "Temperatura"]}
               />
               <ReferenceLine
-                y={liveData.ultimaTemperatura}
+                y={liveData.temperaturaObjetivo}
                 stroke="#a855f7"
                 strokeDasharray="4 4"
                 label={{ value: "Objetivo", fill: "#a855f7", fontSize: 10 }}
