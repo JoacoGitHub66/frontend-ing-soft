@@ -1,7 +1,7 @@
 //La conexión al backend real
 //Este archivo le pregunta al backend de Spring por nuevos datos.
 
-
+/*
 import { TelemetryData, MateEvent, HistoryRow } from "@/types/telemetry" //Trae las interfaces que definiste en telemetry.ts
                                                                          //Si el backend te devuelve algo que no coincide con estas interfaces, 
                                                                          //typeScript te va a tirar un error
@@ -10,6 +10,8 @@ const BASE_URL = "http://localhost:8080/api"  //Es la dirección donde corre Spr
                                               //->esto lo tengo que ver con dp de back y ver si es la misma direccion
 
 
+
+                                              
 //le pregunta al backend el estado actual: temperatura, objetivo, cebadas, eta y alerta. Se llama cada 3 segundos.
 export async function getLiveData(): Promise<TelemetryData> {
   const res = await fetch(`${BASE_URL}/live`)
@@ -43,4 +45,4 @@ export async function postPour(): Promise<void> {
       occurredAt: new Date().toISOString(),
     }),
   })
-}
+}*/

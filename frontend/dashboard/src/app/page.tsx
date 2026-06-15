@@ -1,109 +1,123 @@
+// app/page.tsx
 "use client"
-import { useEffect, useRef, useState } from "react"
-import { getLiveData, getEvents, getHistory, postPour } from "@/services/mockApi"//le paso el moquito de prueba para el grafico
-import { TelemetryData, MateEvent, HistoryRow } from "@/types/telemetry"
+import { useEffect, useState, useRef } from "react"
+import { useMateDevice } from "@/hooks/mateDevice"  // ← Importás tu hook
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
-import { concreteObserver } from "@/observer/concreteObserver"
-import { subject } from "@/observer/subjetc"
+
 
 export default function Home() {
-  //variables especiales de React, cuando cambian o las cambiamos, la pantalla se actualiza sola
-  const [liveData, setLiveData] = useState<TelemetryData | null>(null)
-  const [events, setEvents] = useState<MateEvent[]>([])
-  const [history, setHistory] = useState<HistoryRow[]>([])
-  const [page, setPage] = useState(1)
-  const [tempHistory, setTempHistory] = useState<{ time: string; temp: number }[]>([]) // puntos del grafico: hora y temperatura. Se va llenando con el tiempo
-  const [rango, setrango] = useState("10s")  // esto es lpara los botones de cambio de timepo 10s, 1m, 10m y 1h
+  // 🔥 Usás el hook que ya tiene toda la lógica
+  const { state, startNewSession, endCurrentSession, isLoading, isError } = useMateDevice()
+  
+  // Estado local para el gráfico y UI
+  const [tempHistory, setTempHistory] = useState<{ time: string; temp: number }[]>([])
+  const [pours, setPours] = useState(0)  // Cebadas locales (para contar durante la sesión)
+  const [rango, setrango] = useState("10s")
 
-  const temperatureSubjectRef = useRef<subject | null>(null)
+  // Extraer datos del estado combinado
+  const currentTemp = state.currentTelemetry?.temperature ?? 0
+  const targetTemp = state.currentTelemetry?.targetTemperature ?? 80
+  const sessionId = state.currentTelemetry?.sessionId
+  const isHeating = state.isHeating
+  const activeSession = state.activeSession
+  const totalPoursFromBackend = activeSession?.totalPours ?? 0
 
-  //función que pide todos los datos al servicio y actualiza los estados
-  const fetchAll = async () => {
-    //llama los tres servicios al mismo tiempo (en paralelo, no uno por uno)
-    const [live, evts, hist] = await Promise.all([
-      getLiveData(),// trae temperatura actual, alertas
-      getEvents(),
-      getHistory(),// trae filas del historial
-    ])
+  // Actualizar gráfico cuando cambia la temperatura
+  useEffect(() => {
+    if (currentTemp) {
+      setTempHistory(prev => {
+        const now = new Date()
+        const label = `${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`
+        const next = [...prev, { time: label, temp: currentTemp }]
+        return next.slice(-20)
+      })
+    }
+  }, [currentTemp])
 
-    temperatureSubjectRef.current?.notify(live.ultimaTemperatura)
+  // Sincronizar pours locales con el backend cuando cambia la sesión
+  useEffect(() => {
+    if (activeSession?.sessionType === 'SYSTEM_STARTED') {
+      setPours(totalPoursFromBackend)
+    } else {
+      setPours(0)
+    }
+  }, [activeSession, totalPoursFromBackend])
 
-    //guarda cada resultado en su estado → React actualiza la pantalla automaticamente
-    setLiveData(live)
-    setEvents(evts)
-    setHistory(hist)
-
-    //agrega un nuevo punto al grafico con la hora actual y la temperatura que llego
-    setTempHistory(prev => {
-      const now = new Date()
-      const label = `${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`
-      const next = [...prev, { time: label, temp: live.ultimaTemperatura }]
-      return next.slice(-20)
-    })
-  }
-
-  // se ejecuta cuando el usuario aprieta el botón "Cebar"
-  const handlePour = async () => {
-    await postPour()
-    await fetchAll()
-  }
-
-  const statusColor = (status: string) =>
-    status === "calentando" ? "text-orango-400" : "text-green-400"
-
+  // Notificaciones y observer
   useEffect(() => {
     if ("Notification" in window) {
       Notification.requestPermission().then(permission => {
-      console.log("Permiso de notificación:", permission)
-    })
-}
+        console.log("Permiso de notificación:", permission)
+      })
+    }
 
-    temperatureSubjectRef.current = new subject()
-
-    const temperatureObserver = new concreteObserver(78)
-    temperatureSubjectRef.current.subscribe(temperatureObserver)
-
-    fetchAll()
-
-    const interval = setInterval(fetchAll, 3000)
-
-    return () => clearInterval(interval)
+    return () => {
+      // cleanup si es necesario
+    }
   }, [])
 
-  // mientras fetchAll no terminó la primera llamada, liveData es null
-  // esto evita que React intente mostrar liveData.temperature cuando todavía no hay datos
-  if (!liveData) return <p className="text-white p-8">Cargando...</p>
+  // Manejadores de acciones
+  const handleStartRound = async () => {
+    await startNewSession()
+    setPours(0)
+  }
+
+  const handlePour = async () => {
+    const newPours = pours + 1
+    setPours(newPours)
+    // Opcional: podrías actualizar la sesión en tiempo real
+    // Pero según el contrato, se actualiza al finalizar la sesión
+  }
+
+  const handleFinishRound = async () => {
+    if (pours > 0) {
+      await endCurrentSession(pours)
+      setPours(0)
+    } else {
+      alert("No hay cebadas para finalizar la sesión")
+    }
+  }
+
+  // Estados de carga y error
+  if (isLoading) return <p className="text-white p-8">Cargando...</p>
+  if (isError) return <p className="text-red-500 p-8">Error al cargar datos del mate</p>
+
+  const statusColor = (status: string) =>
+    status === "calentando" ? "text-orange-400" : "text-green-400"
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-6">
 
       {/* Header */}
-
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm text-gray-400 bg-gray-800 px-3 py-1 rounded-full">
-          termo-1 • en vivo
+          {sessionId ? `Sesión #${sessionId}` : "Sin sesión activa"} • {isHeating ? "🔥 Calentando" : "❄️ Enfriando"}
         </span>
       </div>
 
-      {/* Fila de métricas — altura fija en todos */}
+      {/* Fila de métricas */}
       <div className="grid grid-cols-4 gap-4 mb-4">
 
         <div style={{ height: "128px" }} className="bg-gray-800 rounded-xl p-5">
           <p className="text-xs text-gray-400">Temperatura actual</p>
-          <p className="text-3xl font-bold text-orango-400 mt-1">{liveData.ultimaTemperatura}°C</p>
-          <p className="text-xs text-gray-500 mt-1">hace 2 s</p>
+          <p className="text-3xl font-bold text-orange-400 mt-1">{currentTemp}°C</p>
+          <p className="text-xs text-gray-500 mt-1">Objetivo: {targetTemp}°C</p>
         </div>
 
         <div style={{ height: "128px" }} className="bg-gray-800 rounded-xl p-5">
           <p className="text-xs text-gray-400">Cebadas en sesión</p>
-          <p className="text-3xl font-bold text-green-400 mt-1">{liveData.pourCount}</p>
-          <p className="text-xs text-gray-500 mt-1">{liveData.pourRate} / min</p>
+          <p className="text-3xl font-bold text-green-400 mt-1">{pours}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {activeSession ? "Sesión activa" : "Sin sesión"}
+          </p>
         </div>
 
         <div style={{ height: "128px" }} className="bg-gray-800 rounded-xl p-5">
-          <p className="text-xs text-gray-400">Objetivo (potenciómetro)</p>
-          <p className="text-3xl font-bold text-purple-400 mt-1">{liveData.temperaturaObjetivo}°C</p>
-          <p className="text-xs text-gray-500 mt-1">setpoint actual</p>
+          <p className="text-xs text-gray-400">Calentador</p>
+          <p className="text-3xl font-bold mt-1">{isHeating ? "🔥 ON" : "⭕ OFF"}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Último evento: {state.latestEvent?.type || "ninguno"}
+          </p>
         </div>
 
         <div style={{ height: "128px" }} className="bg-gray-800 rounded-xl p-5">
@@ -111,31 +125,35 @@ export default function Home() {
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-400">Sesión</span>
-              <span className="text-green-400 font-bold">{liveData.sessionStatus}</span>
+              <span className={`font-bold ${activeSession ? 'text-green-400' : 'text-gray-500'}`}>
+                {activeSession ? 'ACTIVA' : 'INACTIVA'}
+              </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Inicio</span>
-              <span>16:30:00</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400">Duración</span>
-              <span>13 min</span>
-            </div>
+            {activeSession && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Inicio</span>
+                  <span>{new Date(activeSession.createdAt).toLocaleTimeString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Cebadas</span>
+                  <span>{pours}</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
       </div>
 
-      {/* Fila inferior — altura fija en todos */}
+      {/* Fila inferior */}
       <div className="grid grid-cols-4 gap-4">
 
         {/* Gráfico */}
         <div className="col-span-2 bg-gray-800 rounded-xl p-5" style={{ height: "320px" }}>
-          {/* encabezado del gráfico con botones de filtro de tiempo */}
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-gray-400">Gráfico histórico de temperatura</p>
             <div className="flex gap-2">
-              {/*aca esta la parte en que pone los botonsitos arriba del grafico*/}
               {["10s", "1m", "10m", "1h"].map((r) => (
                 <button
                   key={r}
@@ -152,7 +170,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/*aca esto es para el grafico, marca el tamaño x e y, ademas de marcar las liñas*/}
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={tempHistory}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151"/>
@@ -172,7 +189,7 @@ export default function Home() {
                 formatter={(v) => [`${v}°C`, "Temperatura"]}
               />
               <ReferenceLine
-                y={liveData.temperaturaObjetivo}
+                y={targetTemp}
                 stroke="#a855f7"
                 strokeDasharray="4 4"
                 label={{ value: "Objetivo", fill: "#a855f7", fontSize: 10 }}
@@ -190,37 +207,46 @@ export default function Home() {
           </ResponsiveContainer>
         </div>
 
-        {/* Historial */}
+        {/* Historial - Podés agregar datos reales después */}
         <div className="bg-gray-800 rounded-xl p-5 overflow-auto" style={{ height: "320px" }}>
-          <p className="text-xs text-gray-400 mb-3">Historial de cebadas</p>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-gray-500 border-b border-gray-700">
-                <th className="text-left pb-1">Hora</th>
-                <th className="text-left pb-1">Temp</th>
-                <th className="text-left pb-1">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((row, i) => (
-                <tr key={i} className="border-b border-gray-700">
-                  <td className="py-1 text-gray-300">{row.timestamp}</td>
-                  <td className="py-1 text-orango-400">{row.temperatureC}°C</td>
-                  <td className={`py-1 ${statusColor(row.status)}`}>{row.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p className="text-xs text-gray-400 mb-3">Historial de eventos</p>
+          <div className="text-center text-gray-500 py-8">
+            {state.latestEvent ? (
+              <div>
+                <p>Último evento: {state.latestEvent.type}</p>
+                <p className="text-xs">{new Date(state.latestEvent.timestamp).toLocaleTimeString()}</p>
+              </div>
+            ) : (
+              <p>No hay eventos recientes</p>
+            )}
+          </div>
         </div>
 
-        {/*botonn de cebar */}
-        <div className="flex items-center justify-center" style={{ height: "320px" }}>
-          <button
-            onClick={handlePour}
-            className="bg-green-700 hover:bg-green-600 active:scale-95 transition-all text-white font-bold py-6 px-8 rounded-xl text-lg"
-          >
-            Cebar
-          </button>
+        {/* Botones de acción */}
+        <div className="flex flex-col gap-4 justify-center" style={{ height: "320px" }}>
+          {!activeSession ? (
+            <button
+              onClick={handleStartRound}
+              className="bg-green-700 hover:bg-green-600 active:scale-95 transition-all text-white font-bold py-6 px-8 rounded-xl text-lg"
+            >
+              🧉 Iniciar ronda
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={handlePour}
+                className="bg-blue-700 hover:bg-blue-600 active:scale-95 transition-all text-white font-bold py-6 px-8 rounded-xl text-lg"
+              >
+                +1 Cebada ({pours})
+              </button>
+              <button
+                onClick={handleFinishRound}
+                className="bg-red-700 hover:bg-red-600 active:scale-95 transition-all text-white font-bold py-4 px-8 rounded-xl text-lg"
+              >
+                Terminar ronda
+              </button>
+            </>
+          )}
         </div>
 
       </div>
