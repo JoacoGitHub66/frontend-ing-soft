@@ -5,7 +5,9 @@ export class subject {
   private observers: observer[] = []
 
   subscribe(observer: observer) {
-    this.observers.push(observer)
+    if(!this.observers.includes(observer)) {
+      this.observers.push(observer)
+    }
   }
 
   unsubscribe(observer: observer) {

@@ -5,6 +5,9 @@ import { TelemetryData, MateEvent, HistoryRow } from "@/types/telemetry"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
 import { concreteObserver } from "@/observer/concreteObserver"
 import { subject } from "@/observer/subjetc"
+import { SessionStatus } from "@/types/sessionStatus"
+import { StatusContext } from "@/strategy/context"
+import { stateMate } from "@/strategy/stateMate"
 
 export default function Home() {
   //variables especiales de React, cuando cambian o las cambiamos, la pantalla se actualiza sola
@@ -14,8 +17,10 @@ export default function Home() {
   const [page, setPage] = useState(1)
   const [tempHistory, setTempHistory] = useState<{ time: string; temp: number }[]>([]) // puntos del grafico: hora y temperatura. Se va llenando con el tiempo
   const [rango, setrango] = useState("10s")  // esto es lpara los botones de cambio de timepo 10s, 1m, 10m y 1h
-
   const temperatureSubjectRef = useRef<subject | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>(SessionStatus.CALENTANDO)
+  
+  const statusContextRef = useRef<StatusContext | null>(null)
 
   //función que pide todos los datos al servicio y actualiza los estados
   const fetchAll = async () => {
@@ -25,6 +30,7 @@ export default function Home() {
       getEvents(),
       getHistory(),// trae filas del historial
     ])
+
 
     temperatureSubjectRef.current?.notify(live.ultimaTemperatura)
 
@@ -40,6 +46,16 @@ export default function Home() {
       const next = [...prev, { time: label, temp: live.ultimaTemperatura }]
       return next.slice(-20)
     })
+
+     const status = statusContextRef.current?.doSomething(
+      live.ultimaTemperatura,
+      live.temperaturaObjetivo
+    )
+
+    if (status) {
+      setSessionStatus(status)
+    }
+
   }
 
   // se ejecuta cuando el usuario aprieta el botón "Cebar"
@@ -51,24 +67,26 @@ export default function Home() {
   const statusColor = (status: string) =>
     status === "calentando" ? "text-orango-400" : "text-green-400"
 
-  useEffect(() => {
-    if ("Notification" in window) {
-      Notification.requestPermission().then(permission => {
+useEffect(() => {
+  statusContextRef.current = new StatusContext(new stateMate())
+
+  if ("Notification" in window) {
+    Notification.requestPermission().then(permission => {
       console.log("Permiso de notificación:", permission)
     })
-}
+  }
 
-    temperatureSubjectRef.current = new subject()
+  temperatureSubjectRef.current = new subject()
 
-    const temperatureObserver = new concreteObserver(78)
-    temperatureSubjectRef.current.subscribe(temperatureObserver)
+  const temperatureObserver = new concreteObserver(78)
+  temperatureSubjectRef.current.subscribe(temperatureObserver)
 
-    fetchAll()
+  fetchAll()
 
-    const interval = setInterval(fetchAll, 3000)
+  const interval = setInterval(fetchAll, 3000)
 
-    return () => clearInterval(interval)
-  }, [])
+  return () => clearInterval(interval)
+}, [])
 
   // mientras fetchAll no terminó la primera llamada, liveData es null
   // esto evita que React intente mostrar liveData.temperature cuando todavía no hay datos
@@ -111,7 +129,8 @@ export default function Home() {
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-400">Sesión</span>
-              <span className="text-green-400 font-bold">{liveData.sessionStatus}</span>
+              {/* <span className="text-green-400 font-bold">{liveData.sessionStatus}</span> */}
+              <span className="text-green-400 font-bold">{sessionStatus}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Inicio</span>
@@ -205,8 +224,10 @@ export default function Home() {
               {history.map((row, i) => (
                 <tr key={i} className="border-b border-gray-700">
                   <td className="py-1 text-gray-300">{row.timestamp}</td>
-                  <td className="py-1 text-orango-400">{row.temperatureC}°C</td>
-                  <td className={`py-1 ${statusColor(row.status)}`}>{row.status}</td>
+                  <td className="py-1 text-white-400">{row.temperatureC}°C</td>
+                  <td className={`py-1 ${statusColor(row.status)}`}>
+                  {row.status}
+                </td>
                 </tr>
               ))}
             </tbody>
