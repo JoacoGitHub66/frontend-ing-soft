@@ -8,6 +8,7 @@ import { subject } from "@/observer/subjetc"
 import { SessionStatus } from "@/types/sessionStatus"
 import { StatusContext } from "@/strategy/context"
 import { stateMate } from "@/strategy/stateMate"
+import {descargarPDF} from "@/utils/pdfGenerator"
 
 export default function Home() {
   //variables especiales de React, cuando cambian o las cambiamos, la pantalla se actualiza sola
@@ -237,11 +238,11 @@ useEffect(() => {
         {/*botonn de cebar */}
         <div className="flex items-center justify-center" style={{ height: "320px" }}>
           <button
-            onClick={handlePour}
+            onClick={() => descargarPDF(history)}
             className="bg-green-700 hover:bg-green-600 active:scale-95 transition-all text-white font-bold py-6 px-8 rounded-xl text-lg"
-          >
-            Cebar
-          </button>
+            >
+          Descargar PDF
+        </button>
         </div>
 
       </div>
