@@ -1,8 +1,14 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { getLiveData, getEvents, getHistory, postPour } from "@/services/mockApi"//le paso el moquito de prueba para el grafico
 import { TelemetryData, MateEvent, HistoryRow } from "@/types/telemetry"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
+import { concreteObserver } from "@/observer/concreteObserver"
+import { subject } from "@/observer/subjetc"
+import { SessionStatus } from "@/types/sessionStatus"
+import { StatusContext } from "@/strategy/context"
+import { stateMate } from "@/strategy/stateMate"
+import {descargarPDF} from "@/utils/pdfGenerator"
 
 export default function Home() {
   //variables especiales de React, cuando cambian o las cambiamos, la pantalla se actualiza sola
@@ -12,7 +18,10 @@ export default function Home() {
   const [page, setPage] = useState(1)
   const [tempHistory, setTempHistory] = useState<{ time: string; temp: number }[]>([]) // puntos del grafico: hora y temperatura. Se va llenando con el tiempo
   const [rango, setrango] = useState("10s")  // esto es lpara los botones de cambio de timepo 10s, 1m, 10m y 1h
-
+  const temperatureSubjectRef = useRef<subject | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>(SessionStatus.CALENTANDO)
+  
+  const statusContextRef = useRef<StatusContext | null>(null)
 
   //función que pide todos los datos al servicio y actualiza los estados
   const fetchAll = async () => {
@@ -22,6 +31,9 @@ export default function Home() {
       getEvents(),
       getHistory(),// trae filas del historial
     ])
+
+
+    temperatureSubjectRef.current?.notify(live.ultimaTemperatura)
 
     //guarda cada resultado en su estado → React actualiza la pantalla automaticamente
     setLiveData(live)
@@ -35,14 +47,17 @@ export default function Home() {
       const next = [...prev, { time: label, temp: live.ultimaTemperatura }]
       return next.slice(-20)
     })
-  }
 
-  // se ejecuta una sola vez cuando la pagina carga
-  useEffect(() => {
-    fetchAll()
-    const interval = setInterval(fetchAll, 3000)
-    return () => clearInterval(interval)
-  }, [])
+     const status = statusContextRef.current?.doSomething(
+      live.ultimaTemperatura,
+      live.temperaturaObjetivo
+    )
+
+    if (status) {
+      setSessionStatus(status)
+    }
+
+  }
 
   // se ejecuta cuando el usuario aprieta el botón "Cebar"
   const handlePour = async () => {
@@ -53,6 +68,27 @@ export default function Home() {
   const statusColor = (status: string) =>
     status === "calentando" ? "text-orango-400" : "text-green-400"
 
+useEffect(() => {
+  statusContextRef.current = new StatusContext(new stateMate())
+
+  if ("Notification" in window) {
+    Notification.requestPermission().then(permission => {
+      console.log("Permiso de notificación:", permission)
+    })
+  }
+
+  temperatureSubjectRef.current = new subject()
+
+  const temperatureObserver = new concreteObserver(78)
+  temperatureSubjectRef.current.subscribe(temperatureObserver)
+
+  fetchAll()
+
+  const interval = setInterval(fetchAll, 3000)
+
+  return () => clearInterval(interval)
+}, [])
+
   // mientras fetchAll no terminó la primera llamada, liveData es null
   // esto evita que React intente mostrar liveData.temperature cuando todavía no hay datos
   if (!liveData) return <p className="text-white p-8">Cargando...</p>
@@ -61,6 +97,7 @@ export default function Home() {
     <main className="min-h-screen bg-gray-950 text-white p-6">
 
       {/* Header */}
+
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm text-gray-400 bg-gray-800 px-3 py-1 rounded-full">
           termo-1 • en vivo
@@ -84,7 +121,7 @@ export default function Home() {
 
         <div style={{ height: "128px" }} className="bg-gray-800 rounded-xl p-5">
           <p className="text-xs text-gray-400">Objetivo (potenciómetro)</p>
-          <p className="text-3xl font-bold text-purple-400 mt-1">{liveData.ultimaTemperatura}°C</p>
+          <p className="text-3xl font-bold text-purple-400 mt-1">{liveData.temperaturaObjetivo}°C</p>
           <p className="text-xs text-gray-500 mt-1">setpoint actual</p>
         </div>
 
@@ -93,7 +130,8 @@ export default function Home() {
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-400">Sesión</span>
-              <span className="text-green-400 font-bold">{liveData.sessionStatus}</span>
+              {/* <span className="text-green-400 font-bold">{liveData.sessionStatus}</span> */}
+              <span className="text-green-400 font-bold">{sessionStatus}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Inicio</span>
@@ -154,7 +192,7 @@ export default function Home() {
                 formatter={(v) => [`${v}°C`, "Temperatura"]}
               />
               <ReferenceLine
-                y={liveData.ultimaTemperatura}
+                y={liveData.temperaturaObjetivo}
                 stroke="#a855f7"
                 strokeDasharray="4 4"
                 label={{ value: "Objetivo", fill: "#a855f7", fontSize: 10 }}
@@ -187,8 +225,10 @@ export default function Home() {
               {history.map((row, i) => (
                 <tr key={i} className="border-b border-gray-700">
                   <td className="py-1 text-gray-300">{row.timestamp}</td>
-                  <td className="py-1 text-orango-400">{row.temperatureC}°C</td>
-                  <td className={`py-1 ${statusColor(row.status)}`}>{row.status}</td>
+                  <td className="py-1 text-white-400">{row.temperatureC}°C</td>
+                  <td className={`py-1 ${statusColor(row.status)}`}>
+                  {row.status}
+                </td>
                 </tr>
               ))}
             </tbody>
@@ -198,11 +238,11 @@ export default function Home() {
         {/*botonn de cebar */}
         <div className="flex items-center justify-center" style={{ height: "320px" }}>
           <button
-            onClick={handlePour}
+            onClick={() => descargarPDF(history)}
             className="bg-green-700 hover:bg-green-600 active:scale-95 transition-all text-white font-bold py-6 px-8 rounded-xl text-lg"
-          >
-            Cebar
-          </button>
+            >
+          Descargar PDF
+        </button>
         </div>
 
       </div>

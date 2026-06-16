@@ -1,4 +1,6 @@
 import { TelemetryData, MateEvent, HistoryRow } from "@/types/telemetry"
+import { StatusContext } from "@/strategy/context"
+import { stateMate } from "@/strategy/stateMate"  
 
 let temperature = 15
 let pourCount = 3
@@ -11,11 +13,11 @@ const historyRows: HistoryRow[] = [
 ]
 
 //este seria el ciclo que sigue en bucle la pagina
-const temperatureLoop = [72, 10, 80, 3, 15, 56, 77, 39, 1, 44, 82, 19, 65, 78, 23]
+const temperatureLoop = [60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80]
 let loopIndex = 0
 
 export async function getLiveData(): Promise<TelemetryData> {
-  const temperature = temperatureLoop[loopIndex]
+  temperature = temperatureLoop[loopIndex]
   loopIndex = (loopIndex + 1) % temperatureLoop.length  // cuando llega al final vuelve al inicio
   
   return {
@@ -46,12 +48,23 @@ export async function getHistory(): Promise<HistoryRow[]> {
 
 export async function postPour(): Promise<void> {
   pourCount++
+
   const now = new Date()
   const time = `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`
+
+  const statusContext = new StatusContext(new stateMate())
+
+  const targetTemperature = 78
+
+  const status = statusContext.doSomething(
+    temperature,
+    targetTemperature
+  )
+
   historyRows.unshift({
     timestamp: time,
     temperatureC: temperature,
-    temperaturaObjetivoC: 78,
-    status: "activo",
+    temperaturaObjetivoC: targetTemperature,
+    status: status,
   })
 }
